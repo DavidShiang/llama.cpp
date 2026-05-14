@@ -9,51 +9,58 @@ on:
     branches: [ master ]
     paths:
       - '.github/workflows/build-cuda-linux.yml'
-  workflow_dispatch:  # 允许手动触发
+  workflow_dispatch:
 
 env:
-  CUDA_VERSION: "12.4"  # 可根据需要修改
+  CUDA_VERSION: "12.4"
 
 jobs:
   build-cuda-linux:
-    runs-on: ubuntu-22.04  # 使用 Ubuntu 22.04，CUDA 兼容性好
+    runs-on: ubuntu-22.04
     
     strategy:
       fail-fast: false
       matrix:
         build_type: [Release]
-        cuda_arch: ["52;61;70;75;80;86;89;90"]  # 支持从 Maxwell 到 Ada/Hopper
+        cuda_arch: ["52;61;70;75;80;86;89;90"]
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
       with:
-        submodules: 'recursive'  # 拉取子模块
+        submodules: 'recursive'
 
     - name: Install CUDA Toolkit
       run: |
-        # 添加 NVIDIA CUDA 仓库
+        # 1. 下载并安装 NVIDIA 仓库 Keyring
         wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.1-1_all.deb
         sudo dpkg -i cuda-keyring_1.1-1_all.deb
         sudo apt-get update
-        sudo apt-get -y install cuda-toolkit-${{ env.CUDA_VERSION }}
         
-        # 设置环境变量
-        echo "CUDA_HOME=/usr/local/cuda-${{ env.CUDA_VERSION }}" >> $GITHUB_ENV
-        echo "$CUDA_HOME/bin" >> $GITHUB_PATH
-        echo "LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH" >> $GITHUB_ENV
+        # 2. 将版本号中的 "." 转换为 "-" 以符合 apt 包名规则 (例如 12.4 -> 12-4)
+        CUDA_PKG_SUFFIX=$(echo "${{ env.CUDA_VERSION }}" | tr '.' '-')
+        sudo apt-get -y install cuda-toolkit-$CUDA_PKG_SUFFIX
+        
+        # 3. 设置路径环境变量
+        CUDA_PATH=/usr/local/cuda-${{ env.CUDA_VERSION }}
+        echo "CUDA_HOME=$CUDA_PATH" >> $GITHUB_ENV
+        echo "CUDA_PATH=$CUDA_PATH" >> $GITHUB_ENV
+        echo "$CUDA_PATH/bin" >> $GITHUB_PATH
+        echo "LD_LIBRARY_PATH=$CUDA_PATH/lib64:$LD_LIBRARY_PATH" >> $GITHUB_ENV
+        
+        # 4. 强制建立软链接，防止某些 CMake 脚本找不到 /usr/local/cuda
+        sudo ln -sfn $CUDA_PATH /usr/local/cuda
 
     - name: Install dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y build-essential cmake ninja-build
 
-    - name: Create build directory
-      run: mkdir -p build
-
     - name: Configure CMake
       run: |
+        # 显式指定 CUDA 编译器路径，解决 CMAKE_CUDA_COMPILER-NOTFOUND 问题
         cmake -B build \
+          -DCMAKE_CUDA_COMPILER=${{ env.CUDA_HOME }}/bin/nvcc \
           -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
           -DGGML_CUDA=ON \
           -DGGML_CUDA_FORCE_MMQ=OFF \
@@ -61,27 +68,25 @@ jobs:
           -DGGML_AVX=ON \
           -DGGML_AVX2=ON \
           -DGGML_FMA=ON \
-          -DGGML_BLAS=OFF \
           -DCMAKE_CUDA_ARCHITECTURES="${{ matrix.cuda_arch }}" \
           -GNinja
 
     - name: Build
       run: |
+        # 使用编译优化，限制在可用 CPU 核心数内
         cmake --build build --config ${{ matrix.build_type }} --target llama-server llama-cli llama-perplexity -j $(nproc)
 
     - name: List built files
       run: |
-        echo "Built files:"
         ls -la build/bin/
-        file build/bin/llama-server
-        ldd build/bin/llama-server | grep -E "(cuda|libcudart)" || true
+        # 验证是否成功链接了 CUDA 库
+        ldd build/bin/llama-server | grep -i cuda || echo "Warning: CUDA symbols not found in binary"
 
     - name: Package artifacts
       run: |
         cd build/bin
-        tar -czf llama-cuda-linux-x64.tar.gz llama-server llama-cli llama-perplexity
+        tar -czf ../../llama-cuda-linux-x64.tar.gz llama-server llama-cli llama-perplexity
         cd ../..
-        mv build/bin/llama-cuda-linux-x64.tar.gz .
         sha256sum llama-cuda-linux-x64.tar.gz > llama-cuda-linux-x64.tar.gz.sha256
 
     - name: Upload artifacts
@@ -93,7 +98,7 @@ jobs:
           llama-cuda-linux-x64.tar.gz.sha256
         retention-days: 7
 
-    - name: Upload to Release (optional - only on tags)
+    - name: Create Release (Tag Only)
       if: startsWith(github.ref, 'refs/tags/')
       uses: softprops/action-gh-release@v1
       with:
