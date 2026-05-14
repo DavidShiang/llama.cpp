@@ -7,8 +7,9 @@ on:
 
 env:
   CUDA_VERSION: "12.4"
-  # 关键：1050 的架构代码是 61
   CUDA_ARCH: "61" 
+  # 强制使用 Node 24 消除警告
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
   build-cuda-linux:
@@ -37,11 +38,10 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential cmake ninja-build ccache
+        sudo apt-get install -y build-essential cmake ninja-build
 
     - name: Configure CMake
       run: |
-        # 针对 1050 的专项参数
         cmake -B build \
           -DCMAKE_CUDA_COMPILER=${{ env.CUDA_HOME }}/bin/nvcc \
           -DCMAKE_BUILD_TYPE=Release \
@@ -53,10 +53,22 @@ jobs:
 
     - name: Build
       run: |
-        # 限制并发数为 2，防止 GitHub Actions 内存溢出导致变慢
         cmake --build build --config Release --target llama-cli llama-server -j 2
 
     - name: Package
       run: |
+        # 进入二进制目录进行打包，确保压缩包内没有多余的层级路径
         cd build/bin
         tar -czf ../../llama-gtx1050-linux.tar.gz llama-cli llama-server
+        cd ../..
+        # 生成校验和文件
+        sha256sum llama-gtx1050-linux.tar.gz > llama-gtx1050-linux.tar.gz.sha256
+
+    - name: Upload Artifacts (修复缺失的下载链接)
+      uses: actions/upload-artifact@v4
+      with:
+        name: llama-binaries-gtx1050
+        path: |
+          llama-gtx1050-linux.tar.gz
+          llama-gtx1050-linux.tar.gz.sha256
+        retention-days: 7
