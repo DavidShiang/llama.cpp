@@ -1,4 +1,4 @@
-name: Build llama.cpp for GTX 1050 (Pascal)
+name: Build llama.cpp for X79-E5-GTX1050
 
 on:
   push:
@@ -8,7 +8,6 @@ on:
 env:
   CUDA_VERSION: "12.4"
   CUDA_ARCH: "61" 
-  # 强制使用 Node 24 消除警告
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
@@ -20,7 +19,7 @@ jobs:
       uses: actions/checkout@v4
       with:
         submodules: 'recursive'
-        fetch-depth: 0 # 确保获取完整的仓库历史，避免符号版本错误
+        fetch-depth: 0
 
     - name: Install CUDA Toolkit
       run: |
@@ -43,7 +42,7 @@ jobs:
 
     - name: Configure CMake
       run: |
-        # 增加 -DBUILD_SHARED_LIBS=OFF 确保所有符号打包进二进制文件
+        # 针对 X79/E5 平台的兼容性优化
         cmake -B build \
           -DCMAKE_CUDA_COMPILER=${{ env.CUDA_HOME }}/bin/nvcc \
           -DCMAKE_BUILD_TYPE=Release \
@@ -53,26 +52,29 @@ jobs:
           -DCMAKE_CUDA_ARCHITECTURES="${{ env.CUDA_ARCH }}" \
           -DBUILD_SHARED_LIBS=OFF \
           -DGGML_STATIC=ON \
+          -DGGML_NATIVE=OFF \
+          -DGGML_AVX=ON \
+          -DGGML_AVX2=OFF \
+          -DGGML_FMA=OFF \
+          -DGGML_AVX512=OFF \
           -GNinja
 
     - name: Build
       run: |
-        # 编译所有必要目标
-        cmake --build build --config Release --target llama-cli llama-server llama-perplexity -j 2
+        cmake --build build --config Release --target llama-cli llama-server -j 2
 
     - name: Package
       run: |
         cd build/bin
-        # 此时生成的二进制文件应该是自包含符号的
-        tar -czf ../../llama-gtx1050-linux.tar.gz llama-cli llama-server llama-perplexity
+        tar -czf ../../llama-x79-e5-linux.tar.gz llama-cli llama-server
         cd ../..
-        sha256sum llama-gtx1050-linux.tar.gz > llama-gtx1050-linux.tar.gz.sha256
+        sha256sum llama-x79-e5-linux.tar.gz > llama-x79-e5-linux.tar.gz.sha256
 
-    - name: Upload Artifacts (修复缺失的下载链接)
+    - name: Upload Artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: llama-binaries-gtx1050
+        name: llama-binaries-x79-e5
         path: |
-          llama-gtx1050-linux.tar.gz
-          llama-gtx1050-linux.tar.gz.sha256
+          llama-x79-e5-linux.tar.gz
+          llama-x79-e5-linux.tar.gz.sha256
         retention-days: 7
