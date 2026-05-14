@@ -20,6 +20,7 @@ jobs:
       uses: actions/checkout@v4
       with:
         submodules: 'recursive'
+        fetch-depth: 0 # 确保获取完整的仓库历史，避免符号版本错误
 
     - name: Install CUDA Toolkit
       run: |
@@ -42,6 +43,7 @@ jobs:
 
     - name: Configure CMake
       run: |
+        # 增加 -DBUILD_SHARED_LIBS=OFF 确保所有符号打包进二进制文件
         cmake -B build \
           -DCMAKE_CUDA_COMPILER=${{ env.CUDA_HOME }}/bin/nvcc \
           -DCMAKE_BUILD_TYPE=Release \
@@ -49,19 +51,21 @@ jobs:
           -DGGML_CUDA_FORCE_MMQ=ON \
           -DGGML_CUDA_FAST_ALLOC=ON \
           -DCMAKE_CUDA_ARCHITECTURES="${{ env.CUDA_ARCH }}" \
+          -DBUILD_SHARED_LIBS=OFF \
+          -DGGML_STATIC=ON \
           -GNinja
 
     - name: Build
       run: |
-        cmake --build build --config Release --target llama-cli llama-server -j 2
+        # 编译所有必要目标
+        cmake --build build --config Release --target llama-cli llama-server llama-perplexity -j 2
 
     - name: Package
       run: |
-        # 进入二进制目录进行打包，确保压缩包内没有多余的层级路径
         cd build/bin
-        tar -czf ../../llama-gtx1050-linux.tar.gz llama-cli llama-server
+        # 此时生成的二进制文件应该是自包含符号的
+        tar -czf ../../llama-gtx1050-linux.tar.gz llama-cli llama-server llama-perplexity
         cd ../..
-        # 生成校验和文件
         sha256sum llama-gtx1050-linux.tar.gz > llama-gtx1050-linux.tar.gz.sha256
 
     - name: Upload Artifacts (修复缺失的下载链接)
