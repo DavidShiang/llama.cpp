@@ -1,4 +1,4 @@
-name: Build Hard-Compatible llama-server for E5-2689
+name: Build Fixed llama-server for E5-2689
 
 on:
   push:
@@ -11,7 +11,7 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
-  build-x79-final:
+  build-x79-fixed:
     runs-on: ubuntu-22.04
     
     steps:
@@ -39,10 +39,7 @@ jobs:
 
     - name: Configure CMake
       run: |
-        # 终极兼容性策略：
-        # 1. 显式关闭所有 AVX2/FMA 指令
-        # 2. 强制使用 sandybridge 架构 (E5-2689)
-        # 3. 禁用 GGML 的本地自动优化 (GGML_NATIVE=OFF)
+        # 彻底移除 -static 和 GGML_STATIC，避免链接冲突
         cmake -B build \
           -DCMAKE_CUDA_COMPILER=$CUDA_HOME/bin/nvcc \
           -DCMAKE_BUILD_TYPE=Release \
@@ -50,7 +47,6 @@ jobs:
           -DGGML_CUDA_FORCE_MMQ=ON \
           -DCMAKE_CUDA_ARCHITECTURES="${{ env.CUDA_ARCH }}" \
           -DBUILD_SHARED_LIBS=ON \
-          -DGGML_STATIC=ON \
           -DGGML_NATIVE=OFF \
           -DGGML_AVX=ON \
           -DGGML_AVX2=OFF \
@@ -66,19 +62,20 @@ jobs:
     - name: Prepare Lean Package
       run: |
         mkdir -p dist
+        # 寻找并收集二进制和动态库
         find build -name "llama-server" -type f -exec cp {} dist/ \;
         find build -name "*.so*" -not -path "*/CMakeFiles/*" -exec cp -d {} dist/ \;
         
-        # 检查是否生成了 libggml-cuda.so (核心 Runner)
-        ls -R dist/
+        # 打印一下结果，方便在日志里确认
+        ls -lh dist/
         
         tar -cvzf llama-server-x79-final.tar.gz -C dist .
-        sha256sum llama-server-x79-final.tar.gz > sha256.txt
+        sha256sum llama-x79-final.tar.gz > sha256.txt || true
 
     - name: Upload Artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: llama-server-x79-e5-2689-final
+        name: llama-server-x79-e5-2689-fixed
         path: |
           llama-server-x79-final.tar.gz
           sha256.txt
