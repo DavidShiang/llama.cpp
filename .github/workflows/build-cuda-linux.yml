@@ -1,4 +1,4 @@
-name: Build llama.cpp for X79-E5-GTX1050
+name: Build llama.cpp for E5-2689 (Sandy Bridge)
 
 on:
   push:
@@ -42,13 +42,15 @@ jobs:
 
     - name: Configure CMake
       run: |
-        # 针对 X79/E5 平台的兼容性优化
+        # 深度适配 E5-2689:
+        # 1. 显式指定 -march=sandybridge (这是 2689 的官方代号)
+        # 2. 彻底屏蔽 AVX2/FMA/AVX512
+        # 3. 开启静态链接
         cmake -B build \
           -DCMAKE_CUDA_COMPILER=${{ env.CUDA_HOME }}/bin/nvcc \
           -DCMAKE_BUILD_TYPE=Release \
           -DGGML_CUDA=ON \
           -DGGML_CUDA_FORCE_MMQ=ON \
-          -DGGML_CUDA_FAST_ALLOC=ON \
           -DCMAKE_CUDA_ARCHITECTURES="${{ env.CUDA_ARCH }}" \
           -DBUILD_SHARED_LIBS=OFF \
           -DGGML_STATIC=ON \
@@ -57,6 +59,8 @@ jobs:
           -DGGML_AVX2=OFF \
           -DGGML_FMA=OFF \
           -DGGML_AVX512=OFF \
+          -DCMAKE_C_FLAGS="-march=sandybridge -mtune=generic" \
+          -DCMAKE_CXX_FLAGS="-march=sandybridge -mtune=generic" \
           -GNinja
 
     - name: Build
@@ -66,15 +70,15 @@ jobs:
     - name: Package
       run: |
         cd build/bin
-        tar -czf ../../llama-x79-e5-linux.tar.gz llama-cli llama-server
+        tar -czf ../../llama-e5-2689-gtx1050-linux.tar.gz llama-cli llama-server
         cd ../..
-        sha256sum llama-x79-e5-linux.tar.gz > llama-x79-e5-linux.tar.gz.sha256
+        sha256sum llama-e5-2689-gtx1050-linux.tar.gz > sha256.txt
 
     - name: Upload Artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: llama-binaries-x79-e5
+        name: llama-server-e5-2689
         path: |
-          llama-x79-e5-linux.tar.gz
-          llama-x79-e5-linux.tar.gz.sha256
+          llama-e5-2689-gtx1050-linux.tar.gz
+          sha256.txt
         retention-days: 7
