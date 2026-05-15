@@ -29,9 +29,10 @@ jobs:
         CUDA_PKG_SUFFIX=$(echo "${{ env.CUDA_VERSION }}" | tr '.' '-')
         sudo apt-get -y install cuda-toolkit-$CUDA_PKG_SUFFIX
         
+        # 修正：直接写入环境
         CUDA_PATH=/usr/local/cuda-${{ env.CUDA_VERSION }}
         echo "CUDA_HOME=$CUDA_PATH" >> $GITHUB_ENV
-        echo "$CUDA_PATH/bin" >> $GITHUB_PATH
+        echo "PATH=$CUDA_PATH/bin:$PATH" >> $GITHUB_ENV
         echo "LD_LIBRARY_PATH=$CUDA_PATH/lib64:$LD_LIBRARY_PATH" >> $GITHUB_ENV
 
     - name: Install Build Tools
@@ -39,9 +40,9 @@ jobs:
 
     - name: Configure CMake
       run: |
-        # 针对 E5-2689 显式降级指令集，开启动态库模式
+        # 修正：在 run 内部使用 $CUDA_HOME (Shell变量) 避免 GitHub 上下文报错
         cmake -B build \
-          -DCMAKE_CUDA_COMPILER=${{ env.CUDA_HOME }}/bin/nvcc \
+          -DCMAKE_CUDA_COMPILER=$CUDA_HOME/bin/nvcc \
           -DCMAKE_BUILD_TYPE=Release \
           -DGGML_CUDA=ON \
           -DGGML_CUDA_FORCE_MMQ=ON \
@@ -60,28 +61,26 @@ jobs:
 
     - name: Prepare Lean Package
       run: |
-        # 创建一个干净的发布目录
         mkdir -p dist
         
         # 1. 复制主程序
-        cp build/bin/llama-server dist/
-        
-        # 2. 仅复制运行必需的动态库 (排除 .a 静态库)
-        # 通常包括 libggml.so, libllama.so, libcommon.so, libggml-cuda.so 等
-        find build/bin -name "*.so*" -exec cp -d {} dist/ \;
-        
-        # 3. 检查是否有遗漏在 build/lib 目录下的库
-        if [ -d "build/lib" ]; then
-          find build/lib -name "*.so*" -exec cp -d {} dist/ \;
+        find build -name "llama-server" -type f -exec cp {} dist/ \;
+
+        # 2. 仅复制 Runner 动态库 (.so)，排除 CMake 生成的临时链接文件和静态库
+        # 我们只从 bin 和 lib 目录提取，确保干净
+        find build -name "*.so*" -not -path "*/CMakeFiles/*" -exec cp -d {} dist/ \;
+
+        # 3. 检查并清理（确保 dist 里只有针对当前平台的文件）
+        if [ ! -f dist/llama-server ]; then
+          echo "Error: llama-server was not built correctly!"
+          exit 1
         fi
 
-        # 4. 打包
-        cd dist
-        tar -czvf ../llama-server-x79-lean.tar.gz .
-        cd ..
+        # 4. 打包并计算校验和
+        tar -cvzf llama-server-x79-lean.tar.gz -C dist .
         sha256sum llama-server-x79-lean.tar.gz > sha256.txt
 
-    - name: [CRITICAL] Upload Artifacts
+    - name: Upload Artifacts
       uses: actions/upload-artifact@v4
       with:
         name: llama-server-x79-e5-2689
