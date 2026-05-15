@@ -1,4 +1,4 @@
-name: Build Fixed llama-server for E5-2689
+name: Build Optimized GGML-CUDA Runner
 
 on:
   push:
@@ -11,35 +11,28 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
-  build-x79-fixed:
+  build-hardware-drivers:
     runs-on: ubuntu-22.04
     
     steps:
-    - name: Checkout code
+    - name: Checkout
       uses: actions/checkout@v4
       with:
         submodules: 'recursive'
-        fetch-depth: 0
 
-    - name: Install CUDA Toolkit
+    - name: Install CUDA 12.4
       run: |
         wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.1-1_all.deb
         sudo dpkg -i cuda-keyring_1.1-1_all.deb
         sudo apt-get update
-        CUDA_PKG_SUFFIX=$(echo "${{ env.CUDA_VERSION }}" | tr '.' '-')
-        sudo apt-get -y install cuda-toolkit-$CUDA_PKG_SUFFIX
-        
-        CUDA_PATH=/usr/local/cuda-${{ env.CUDA_VERSION }}
-        echo "CUDA_HOME=$CUDA_PATH" >> $GITHUB_ENV
-        echo "PATH=$CUDA_PATH/bin:$PATH" >> $GITHUB_ENV
-        echo "LD_LIBRARY_PATH=$CUDA_PATH/lib64:$LD_LIBRARY_PATH" >> $GITHUB_ENV
-
-    - name: Install Build Tools
-      run: sudo apt-get update && sudo apt-get install -y build-essential cmake ninja-build
+        sudo apt-get -y install cuda-toolkit-12-4
+        echo "CUDA_HOME=/usr/local/cuda-12.4" >> $GITHUB_ENV
+        echo "PATH=/usr/local/cuda-12.4/bin:$PATH" >> $GITHUB_ENV
 
     - name: Configure CMake
       run: |
-        # 彻底移除 -static 和 GGML_STATIC，避免链接冲突
+        # 针对架构图中的 Hardware_Drivers 层进行优化
+        # 显式关闭 AVX2，确保 CPU 侧的调度代码不崩溃
         cmake -B build \
           -DCMAKE_CUDA_COMPILER=$CUDA_HOME/bin/nvcc \
           -DCMAKE_BUILD_TYPE=Release \
@@ -47,35 +40,28 @@ jobs:
           -DGGML_CUDA_FORCE_MMQ=ON \
           -DCMAKE_CUDA_ARCHITECTURES="${{ env.CUDA_ARCH }}" \
           -DBUILD_SHARED_LIBS=ON \
-          -DGGML_NATIVE=OFF \
           -DGGML_AVX=ON \
           -DGGML_AVX2=OFF \
           -DGGML_FMA=OFF \
-          -DGGML_AVX512=OFF \
-          -DCMAKE_C_FLAGS="-march=sandybridge -mtune=generic" \
-          -DCMAKE_CXX_FLAGS="-march=sandybridge -mtune=generic" \
+          -DCMAKE_C_FLAGS="-march=sandybridge" \
+          -DCMAKE_CXX_FLAGS="-march=sandybridge" \
           -GNinja
 
     - name: Build llama-server
       run: cmake --build build --config Release --target llama-server -j 2
 
-    - name: Prepare Lean Package
+    - name: Precision Packaging
       run: |
-        mkdir -p dist
-        # 寻找并收集二进制和动态库
-        find build -name "llama-server" -type f -exec cp {} dist/ \;
-        find build -name "*.so*" -not -path "*/CMakeFiles/*" -exec cp -d {} dist/ \;
+        mkdir -p hardware_drivers
+        # 1. 抓取架构图底层的 .so 文件 (libggml-cuda.so, libggml.so 等)
+        find build -name "*.so*" -not -path "*/CMakeFiles/*" -exec cp -d {} hardware_drivers/ \;
+        # 2. 抓取我们适配过的 server 壳作为保底
+        cp build/bin/llama-server hardware_drivers/
         
-        # 打印一下结果，方便在日志里确认
-        ls -lh dist/
-        
-        tar -cvzf llama-server-x79-final.tar.gz -C dist .
-        sha256sum llama-x79-final.tar.gz > sha256.txt || true
+        tar -czvf llama-x79-cuda-drivers.tar.gz -C hardware_drivers .
 
-    - name: Upload Artifacts
+    - name: Upload Runner
       uses: actions/upload-artifact@v4
       with:
-        name: llama-server-x79-e5-2689-fixed
-        path: |
-          llama-server-x79-final.tar.gz
-          sha256.txt
+        name: llama-x79-hardware-drivers
+        path: llama-x79-cuda-drivers.tar.gz
