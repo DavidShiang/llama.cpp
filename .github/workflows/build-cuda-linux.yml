@@ -1,4 +1,4 @@
-name: Build Optimized llama-server for E5-2689
+name: Build Lean llama-server for E5-2689
 
 on:
   push:
@@ -11,16 +11,17 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
-  build-x79:
+  build-x79-lean:
     runs-on: ubuntu-22.04
     
     steps:
-    - name: Checkout
+    - name: Checkout code
       uses: actions/checkout@v4
       with:
         submodules: 'recursive'
+        fetch-depth: 0
 
-    - name: Install CUDA
+    - name: Install CUDA Toolkit
       run: |
         wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.1-1_all.deb
         sudo dpkg -i cuda-keyring_1.1-1_all.deb
@@ -33,10 +34,12 @@ jobs:
         echo "$CUDA_PATH/bin" >> $GITHUB_PATH
         echo "LD_LIBRARY_PATH=$CUDA_PATH/lib64:$LD_LIBRARY_PATH" >> $GITHUB_ENV
 
-    - name: Configure (动态库模式)
+    - name: Install Build Tools
+      run: sudo apt-get update && sudo apt-get install -y build-essential cmake ninja-build
+
+    - name: Configure CMake
       run: |
-        # 核心改动：开启 BUILD_SHARED_LIBS 产生 .so
-        # 同时强制所有组件（包括 server 壳）使用 sandybridge 指令集
+        # 针对 E5-2689 显式降级指令集，开启动态库模式
         cmake -B build \
           -DCMAKE_CUDA_COMPILER=${{ env.CUDA_HOME }}/bin/nvcc \
           -DCMAKE_BUILD_TYPE=Release \
@@ -48,22 +51,41 @@ jobs:
           -DGGML_AVX=ON \
           -DGGML_AVX2=OFF \
           -DGGML_FMA=OFF \
-          -DCMAKE_C_FLAGS="-march=sandybridge" \
-          -DCMAKE_CXX_FLAGS="-march=sandybridge" \
+          -DCMAKE_C_FLAGS="-march=sandybridge -mtune=generic" \
+          -DCMAKE_CXX_FLAGS="-march=sandybridge -mtune=generic" \
           -GNinja
 
-    - name: Build
+    - name: Build llama-server
       run: cmake --build build --config Release --target llama-server -j 2
 
-    - name: Package (打包 Server 和所有 .so)
+    - name: Prepare Lean Package
       run: |
+        # 创建一个干净的发布目录
         mkdir -p dist
-        # 收集主程序
-        cp build/bin/llama-server dist/
-        # 收集关键动态库 (libggml, libcommon, libllama 等)
-        cp build/bin/*.so* dist/ 2>/dev/null || true
-        # 考虑到某些版本动态库可能在 lib 目录下
-        find build -name "*.so*" -exec cp {} dist/ \;
         
+        # 1. 复制主程序
+        cp build/bin/llama-server dist/
+        
+        # 2. 仅复制运行必需的动态库 (排除 .a 静态库)
+        # 通常包括 libggml.so, libllama.so, libcommon.so, libggml-cuda.so 等
+        find build/bin -name "*.so*" -exec cp -d {} dist/ \;
+        
+        # 3. 检查是否有遗漏在 build/lib 目录下的库
+        if [ -d "build/lib" ]; then
+          find build/lib -name "*.so*" -exec cp -d {} dist/ \;
+        fi
+
+        # 4. 打包
         cd dist
-        tar -czf ../llama-x79-dynamic.tar.gz .
+        tar -czvf ../llama-server-x79-lean.tar.gz .
+        cd ..
+        sha256sum llama-server-x79-lean.tar.gz > sha256.txt
+
+    - name: [CRITICAL] Upload Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: llama-server-x79-e5-2689
+        path: |
+          llama-server-x79-lean.tar.gz
+          sha256.txt
+        retention-days: 5
