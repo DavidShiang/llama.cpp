@@ -31,14 +31,16 @@ jobs:
 
     - name: Configure CMake
       run: |
-        # 针对架构图中的 Hardware_Drivers 层进行优化
-        # 显式关闭 AVX2，确保 CPU 侧的调度代码不崩溃
+        # 1. 针对架构图中的 Hardware_Drivers 层进行优化
+        # 2. 显式关闭指令集检测，确保 SandyBridge 兼容性
+        # 3. 启用动态加载后端 (DL) 以隔离 CUDA 驱动
         cmake -B build \
+          -DGGML_CPU_ALL_VARIANTS=OFF \
+          -DGGML_NATIVE=OFF \
           -DCMAKE_CUDA_COMPILER=$CUDA_HOME/bin/nvcc \
           -DCMAKE_BUILD_TYPE=Release \
           -DGGML_CUDA=ON \
           -DCMAKE_CUDA_ARCHITECTURES="61" \
-          # --- 关键修正开始 ---
           -DGGML_NATIVE=OFF \
           -DGGML_BACKEND_DL=ON \
           -DGGML_AVX2=OFF \
@@ -47,7 +49,6 @@ jobs:
           -DBUILD_SHARED_LIBS=ON \
           -DCMAKE_C_FLAGS="-march=sandybridge" \
           -DCMAKE_CXX_FLAGS="-march=sandybridge" \
-          # --- 关键修正结束 ---
           -GNinja
 
     - name: Build llama-server
