@@ -1,8 +1,8 @@
 name: Build Optimized GGML-CUDA Runner
 
 on:
-  push:
-    branches: [ master ]
+  # push:
+  #  branches: [ master ]
   workflow_dispatch:
 
 env:
