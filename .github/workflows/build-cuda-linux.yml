@@ -37,14 +37,17 @@ jobs:
           -DCMAKE_CUDA_COMPILER=$CUDA_HOME/bin/nvcc \
           -DCMAKE_BUILD_TYPE=Release \
           -DGGML_CUDA=ON \
-          -DGGML_CUDA_FORCE_MMQ=ON \
-          -DCMAKE_CUDA_ARCHITECTURES="${{ env.CUDA_ARCH }}" \
-          -DBUILD_SHARED_LIBS=ON \
-          -DGGML_AVX=ON \
+          -DCMAKE_CUDA_ARCHITECTURES="61" \
+          # --- 关键修正开始 ---
+          -DGGML_NATIVE=OFF \
+          -DGGML_BACKEND_DL=ON \
           -DGGML_AVX2=OFF \
           -DGGML_FMA=OFF \
+          -DGGML_AVX=ON \
+          -DBUILD_SHARED_LIBS=ON \
           -DCMAKE_C_FLAGS="-march=sandybridge" \
           -DCMAKE_CXX_FLAGS="-march=sandybridge" \
+          # --- 关键修正结束 ---
           -GNinja
 
     - name: Build llama-server
