@@ -1,0 +1,89 @@
+name: Build llama-server Only
+
+on:
+  #push:
+  #  branches: [ "master", "main" ]
+  #  paths:
+  #    - 'examples/server/**'
+  #    - 'common/**'
+  #    - 'src/**'
+  #    - 'include/**'
+  #    - 'CMakeLists.txt'
+  #pull_request:
+  #  branches: [ "master", "main" ]
+  workflow_dispatch: # 支持在 GitHub 网页上手动点击触发编译
+
+permissions:
+  contents: write
+
+jobs:
+  build-ubuntu:
+    name: Build Ubuntu (CPU Only)
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        submodules: 'recursive' # 确保依赖的子模块完整拉取
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake build-essential
+
+    - name: Configure CMake
+      # 优化关键：关闭不必要的 CLI、Examples、Tests 和 Python 绑定，轻量化配置
+      run: |
+        cmake -B build \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DLLAMA_BUILD_CLI=OFF \
+          -DLLAMA_BUILD_EXAMPLES=OFF \
+          -DLLAMA_BUILD_TESTS=OFF \
+          -DLLAMA_BUILD_SERVER=ON
+
+    - name: Build llama-server Target Only
+      # 核心加速：指定 --target llama-server，且开启多核并行编译
+      run: |
+        cmake --build build --config Release --target llama-server -j $(nproc)
+
+    - name: Upload Build Artifact
+      uses: actions/artifacts-cc@v4 # 推荐使用新版加速构件上传
+      with:
+        name: llama-server-ubuntu-x64
+        path: build/bin/llama-server
+
+  # 如果你需要在 GPU 环境运行，可以开启此 Job（这里以常见的 CUDA 动作为例）
+  build-ubuntu-cuda:
+    name: Build Ubuntu (CUDA Enabled)
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        submodules: 'recursive'
+
+    - name: Install CUDA Toolkit
+      uses: jimmyhenrick/cuda-toolkit-action@v1
+      with:
+        cuda: '12.2.0' # 可根据你的生产服务器显卡驱动版本调整
+
+    - name: Configure CMake with CUDA
+      run: |
+        cmake -B build \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DLLAMA_GGML_CUDA=ON \
+          -DLLAMA_BUILD_CLI=OFF \
+          -DLLAMA_BUILD_EXAMPLES=OFF \
+          -DLLAMA_BUILD_TESTS=OFF \
+          -DLLAMA_BUILD_SERVER=ON
+
+    - name: Build llama-server Target (CUDA)
+      run: |
+        cmake --build build --config Release --target llama-server -j $(nproc)
+
+    - name: Upload CUDA Artifact
+      uses: actions/artifacts-cc@v4
+      with:
+        name: llama-server-ubuntu-cuda
+        path: build/bin/llama-server
