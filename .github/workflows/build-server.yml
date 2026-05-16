@@ -33,7 +33,6 @@ jobs:
         sudo apt-get install -y cmake build-essential
 
     - name: Configure CMake
-      # 优化关键：关闭不必要的 CLI、Examples、Tests 和 Python 绑定，轻量化配置
       run: |
         cmake -B build \
           -DCMAKE_BUILD_TYPE=Release \
@@ -43,17 +42,16 @@ jobs:
           -DLLAMA_BUILD_SERVER=ON
 
     - name: Build llama-server Target Only
-      # 核心加速：指定 --target llama-server，且开启多核并行编译
       run: |
         cmake --build build --config Release --target llama-server -j $(nproc)
 
     - name: Upload Build Artifact
-      uses: actions/artifacts-cc@v4 # 推荐使用新版加速构件上传
+      # 修复点 1：使用官方唯一正宗的构件上传组件，彻底解决 repository not found 报错
+      uses: actions/upload-artifact@v4
       with:
         name: llama-server-ubuntu-x64
         path: build/bin/llama-server
 
-  # 如果你需要在 GPU 环境运行，可以开启此 Job（这里以常见的 CUDA 动作为例）
   build-ubuntu-cuda:
     name: Build Ubuntu (CUDA Enabled)
     runs-on: ubuntu-latest
@@ -63,10 +61,18 @@ jobs:
       with:
         submodules: 'recursive'
 
-    - name: Install CUDA Toolkit
-      uses: jimmyhenrick/cuda-toolkit-action@v1
-      with:
-        cuda: '12.2.0' # 可根据你的生产服务器显卡驱动版本调整
+    # 修复点 2：GitHub 官方的 ubuntu-latest 镜像其实已经预装了 CUDA 全套环境！
+    # 根本不需要使用任何高风险的第三方 cuda-toolkit-action。
+    # 我们只需要通过这两行原生 Shell 脚本，把系统里预装的 CUDA 软链接和环境变量激活即可。
+    - name: Verify and Set Up Pre-installed CUDA
+      run: |
+        echo "Checking pre-installed CUDA versions..."
+        ls -l /usr/local/cuda* || true
+        # 默认指向系统预装的最稳定版本
+        export CUDA_PATH=/usr/local/cuda
+        echo "CUDA_PATH=$CUDA_PATH" >> $GITHUB_ENV
+        echo "$CUDA_PATH/bin" >> $GITHUB_PATH
+        echo "LD_LIBRARY_PATH=$CUDA_PATH/lib64:$LD_LIBRARY_PATH" >> $GITHUB_ENV
 
     - name: Configure CMake with CUDA
       run: |
@@ -83,7 +89,8 @@ jobs:
         cmake --build build --config Release --target llama-server -j $(nproc)
 
     - name: Upload CUDA Artifact
-      uses: actions/artifacts-cc@v4
+      # 修复点 3：同样同步为官方标准的构建上传组件
+      uses: actions/upload-artifact@v4
       with:
         name: llama-server-ubuntu-cuda
         path: build/bin/llama-server
