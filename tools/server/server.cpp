@@ -332,7 +332,7 @@ int main(int argc, char ** argv) {
         while (true) {
             // 在进入阻塞的 start_loop 之前，**优先检查**是否有未处理的切模型请求
             if (g_should_switch_model.load()) {
-                SRV_INF("Hot-reload triggered pre-loop! Unloading old inference system...\n");
+                SRV_INF("%s","Hot-reload triggered pre-loop! Unloading old inference system...\n");
                 
                 // 彻底中断当前状态并显式触发资源清理
                 ctx_server.terminate();
@@ -344,7 +344,7 @@ int main(int argc, char ** argv) {
                     params.model_alias = {};
                 }
 
-                SRV_INF("Hot-reload! Loading new model weights from: %s\n", params.model.path.c_str());
+                SRV_INF("%s","Hot-reload! Loading new model weights from: %s\n", params.model.path.c_str());
 
                 if (!ctx_server.load_model(params)) {
                     SRV_ERR("Hot-reload CRITICAL ERROR: Failed to load model %s\n", params.model.path.c_str());
@@ -353,7 +353,7 @@ int main(int argc, char ** argv) {
 
                 routes.update_meta(ctx_server);
                 g_should_switch_model.store(false); // 消费完信号，关灯
-                SRV_INF("Hot-reload pre-check complete. Starting service safely!\n");
+                SRV_INF("%s","Hot-reload pre-check complete. Starting service safely!\n");
             }
 
             // 此处会阻塞主线程，开始正常响应 /v1/chat/completions
@@ -361,7 +361,7 @@ int main(int argc, char ** argv) {
 
             // 当从 start_loop 阻塞中醒来时，再次检查是否是因为看门狗触发了换模信号
             if (g_should_switch_model.load()) {
-                SRV_INF("Hot-reload triggered post-loop! Unloading old inference system...\n");
+                SRV_INF("%s","Hot-reload triggered post-loop! Unloading old inference system...\n");
                 ctx_server.terminate();
 
                 params.model.path = g_next_model_path;
@@ -380,7 +380,7 @@ int main(int argc, char ** argv) {
 
                 routes.update_meta(ctx_server);
                 g_should_switch_model.store(false); 
-                SRV_INF("Hot-reload post-check complete. Resuming service loop!\n");
+                SRV_INF("%s","Hot-reload post-check complete. Resuming service loop!\n");
                 
                 continue; // 带着新模型重新杀回循环头部
             }
